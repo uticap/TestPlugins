@@ -1,5 +1,6 @@
 package com.ninebik
 
+import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
@@ -12,18 +13,17 @@ import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.SubtitleFile
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import org.json.JSONObject
+import org.json.JSONArray
 
 class NineBikProvider : MainAPI() {
     override var mainUrl = "https://cdn.9bik.win"
     override var name = "9bik IPTV"
-    override val supportedTypes = setOf(TvType.Live)
     override var lang = "en"
+    override val supportedTypes = setOf(TvType.Live)
     override val hasMainPage = true
 
-    // Hardcoded for now — will add a settings screen in the next iteration
     private val xtreamUser = "xtream"
     private val xtreamPass = "xn-uxwr6NQf12z55"
 
@@ -32,25 +32,24 @@ class NineBikProvider : MainAPI() {
         try {
             val url = "$mainUrl/player_api.php?username=$xtreamUser&password=$xtreamPass&action=get_live_streams"
             val resp = app.get(url).text
-            val arr = org.json.JSONArray(resp)
+            val arr = JSONArray(resp)
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val sid = o.optString("stream_id")
                 val nm = o.optString("name")
                 val icon = o.optString("stream_icon", "")
-                items.add(newLiveSearchResponse(nm, "channel:$sid", this.name) {
-                    this.posterUrl = icon.ifBlank { null }
-                })
+                items.add(
+                    newLiveSearchResponse(nm, "channel:$sid", this.name) {
+                        this.posterUrl = icon.ifBlank { null }
+                    }
+                )
             }
-        } catch (e: Exception) {
-            // log and return empty
+        } catch (_: Exception) {
         }
-        return newHomePageResponse(listOf(com.lagradost.cloudstream3.HomePageList("Live Channels", items)))
+        return newHomePageResponse(listOf(HomePageList("Live Channels", items)))
     }
 
-    override suspend fun search(query: String): List<SearchResponse>? {
-        return null
-    }
+    override suspend fun search(query: String): List<SearchResponse>? = null
 
     override suspend fun load(url: String): LoadResponse? {
         if (url.startsWith("channel:")) {
@@ -63,7 +62,7 @@ class NineBikProvider : MainAPI() {
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
+        subtitleCallback: (com.lagradost.cloudstream3.utils.SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         if (data.startsWith("channel:")) {
