@@ -27,6 +27,10 @@ class NineBikProvider : MainAPI() {
     private val xtreamUser = "xtream"
     private val xtreamPass = "xn-uxwr6NQf12z55"
 
+    private fun streamUrl(sid: String): String {
+        return "$mainUrl/live/$xtreamUser/$xtreamPass/$sid.ts"
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = mutableListOf<SearchResponse>()
         try {
@@ -39,7 +43,7 @@ class NineBikProvider : MainAPI() {
                 val nm = o.optString("name")
                 val icon = o.optString("stream_icon", "")
                 items.add(
-                    newLiveSearchResponse(nm, "channel:$sid", TvType.Live) {
+                    newLiveSearchResponse(nm, streamUrl(sid), TvType.Live) {
                         this.posterUrl = icon.ifBlank { null }
                     }
                 )
@@ -52,10 +56,7 @@ class NineBikProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? = null
 
     override suspend fun load(url: String): LoadResponse? {
-        if (url.startsWith("channel:")) {
-            return newLiveStreamLoadResponse(name, url, "")
-        }
-        return null
+        return newLiveStreamLoadResponse(name, url, "")
     }
 
     override suspend fun loadLinks(
@@ -64,19 +65,14 @@ class NineBikProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.startsWith("channel:")) {
-            val sid = data.removePrefix("channel:")
-            val streamUrl = "$mainUrl/live/$xtreamUser/$xtreamPass/$sid.ts"
-            callback(
-                newExtractorLink(
-                    source = this.name,
-                    name = "9bik Live",
-                    url = streamUrl,
-                    type = ExtractorLinkType.M3U8
-                )
+        callback(
+            newExtractorLink(
+                source = this.name,
+                name = "9bik Live",
+                url = data,
+                type = ExtractorLinkType.M3U8
             )
-            return true
-        }
-        return false
+        )
+        return true
     }
 }
