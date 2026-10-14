@@ -12,6 +12,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
+import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
@@ -24,17 +25,38 @@ class NineBikProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Live)
     override val hasMainPage = true
 
-    private val xtreamUser = "xtream"
-    private val xtreamPass = "xn-uxwr6NQf12z55"
+    private val xtreamUser: String
+        get() = Plugin.context
+            ?.getSharedPreferences("ninebik", 0)
+            ?.getString("xtream_user", "")
+            ?: ""
 
-    private fun streamUrl(sid: String): String {
-        return "$mainUrl/live/$xtreamUser/$xtreamPass/$sid.ts"
-    }
+    private val xtreamPass: String
+        get() = Plugin.context
+            ?.getSharedPreferences("ninebik", 0)
+            ?.getString("xtream_pass", "")
+            ?: ""
+
+    private fun streamUrl(sid: String): String =
+        "$mainUrl/live/$xtreamUser/$xtreamPass/$sid.ts"
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = mutableListOf<SearchResponse>()
+
+        val user = xtreamUser
+        val pass = xtreamPass
+        if (user.isBlank() || pass.isBlank()) {
+            // No credentials — show a hint card
+            items.add(
+                newLiveSearchResponse("⚠️ Set your login in plugin settings", mainUrl, TvType.Live) {
+                    this.posterUrl = null
+                }
+            )
+            return newHomePageResponse(listOf(HomePageList("Login required", items)))
+        }
+
         try {
-            val url = "$mainUrl/player_api.php?username=$xtreamUser&password=$xtreamPass&action=get_live_streams"
+            val url = "$mainUrl/player_api.php?username=$user&password=$pass&action=get_live_streams"
             val resp = app.get(url).text
             val arr = JSONArray(resp)
             for (i in 0 until arr.length()) {
@@ -50,6 +72,7 @@ class NineBikProvider : MainAPI() {
             }
         } catch (_: Exception) {
         }
+
         return newHomePageResponse(listOf(HomePageList("Live Channels", items)))
     }
 
