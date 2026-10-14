@@ -26,9 +26,16 @@ class NineBikProvider : MainAPI() {
     override val hasMainPage = true
 
     private fun cred(key: String): String {
-        val ctx: Context = NineBikPlugin.appContext ?: return ""
-        return ctx.getSharedPreferences("ninebik", Context.MODE_PRIVATE)
-            .getString(key, "") ?: ""
+        val ctx: Context? = NineBikPlugin.appContext
+        val stored = ctx?.getSharedPreferences("ninebik", Context.MODE_PRIVATE)
+            ?.getString(key, "") ?: ""
+        if (stored.isNotBlank()) return stored
+        // Fallback defaults until user logs in via settings
+        return when (key) {
+            "user" -> "xtream"
+            "pass" -> "xn-uxwr6NQf12z55"
+            else -> ""
+        }
     }
 
     private fun streamUrl(sid: String): String =
