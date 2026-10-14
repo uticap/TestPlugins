@@ -1,5 +1,6 @@
 package com.ninebik
 
+import android.content.Context
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -12,7 +13,6 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
-import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
@@ -25,30 +25,23 @@ class NineBikProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Live)
     override val hasMainPage = true
 
-    private val xtreamUser: String
-        get() = Plugin.context
-            ?.getSharedPreferences("ninebik", 0)
-            ?.getString("xtream_user", "")
-            ?: ""
-
-    private val xtreamPass: String
-        get() = Plugin.context
-            ?.getSharedPreferences("ninebik", 0)
-            ?.getString("xtream_pass", "")
-            ?: ""
+    private fun cred(key: String): String {
+        val ctx: Context = NineBikPlugin.appContext ?: return ""
+        return ctx.getSharedPreferences("ninebik", Context.MODE_PRIVATE)
+            .getString(key, "") ?: ""
+    }
 
     private fun streamUrl(sid: String): String =
-        "$mainUrl/live/$xtreamUser/$xtreamPass/$sid.ts"
+        "$mainUrl/live/${cred("user")}/${cred("pass")}/$sid.ts"
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = mutableListOf<SearchResponse>()
+        val user = cred("user")
+        val pass = cred("pass")
 
-        val user = xtreamUser
-        val pass = xtreamPass
         if (user.isBlank() || pass.isBlank()) {
-            // No credentials — show a hint card
             items.add(
-                newLiveSearchResponse("⚠️ Set your login in plugin settings", mainUrl, TvType.Live) {
+                newLiveSearchResponse("Tap the settings gear to log in", mainUrl, TvType.Live) {
                     this.posterUrl = null
                 }
             )
