@@ -20,7 +20,7 @@ class NineBikProvider : MainAPI() {
     override var mainUrl = "https://cdn.9bik.win"
     override var name = "9bik IPTV"
     override val supportedTypes = setOf(TvType.Live)
-    override val lang = "en"
+    override var lang = "en"
     override val hasMainPage = true
 
     // Hardcoded for now — will add a settings screen in the next iteration
