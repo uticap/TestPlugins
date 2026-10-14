@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.newHomePageResponse
@@ -13,7 +14,6 @@ import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONArray
 
@@ -39,7 +39,7 @@ class NineBikProvider : MainAPI() {
                 val nm = o.optString("name")
                 val icon = o.optString("stream_icon", "")
                 items.add(
-                    newLiveSearchResponse(nm, "channel:$sid", this.name) {
+                    newLiveSearchResponse(nm, "channel:$sid", TvType.Live) {
                         this.posterUrl = icon.ifBlank { null }
                     }
                 )
@@ -53,8 +53,7 @@ class NineBikProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         if (url.startsWith("channel:")) {
-            val sid = url.removePrefix("channel:")
-            return newLiveStreamLoadResponse(name, url, null)
+            return newLiveStreamLoadResponse(name, url, "")
         }
         return null
     }
@@ -62,7 +61,7 @@ class NineBikProvider : MainAPI() {
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
-        subtitleCallback: (com.lagradost.cloudstream3.utils.SubtitleFile) -> Unit,
+        subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         if (data.startsWith("channel:")) {
