@@ -1,6 +1,7 @@
 package com.ninebik
 
 import android.app.AlertDialog
+import kotlinx.coroutines.runBlocking
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -142,7 +143,11 @@ class NineBikPlugin : Plugin() {
 
             // Fire network call in background thread
             Thread {
-                val ok = NineBikProvider.activateCode(ctx, code)
+                val ok = try {
+                    runBlocking { NineBikProvider.activateCode(ctx, code) }
+                } catch (_: Exception) {
+                    false
+                }
                 Handler(Looper.getMainLooper()).post {
                     if (ok) {
                         Toast.makeText(ctx, "Activated! Open the provider to browse.", Toast.LENGTH_LONG).show()
