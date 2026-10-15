@@ -80,10 +80,9 @@ class NineBikProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? = null
 
     override suspend fun load(url: String): LoadResponse? {
-        // Return a live load response with the direct stream URL
-        // CloudStream should immediately show a Play button
         return newLiveStreamLoadResponse(
             name = name,
+            url = url,
             dataUrl = url
         )
     }
