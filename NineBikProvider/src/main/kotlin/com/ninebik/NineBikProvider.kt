@@ -39,17 +39,6 @@ class NineBikProvider : MainAPI() {
         }
     }
 
-    // Convert raw stream URL to full panel proxy URL
-    private fun proxiedStreamUrl(rawUrl: String): String {
-        val u = cred("user")
-        val p = cred("pass")
-        // /live/<match_id>?url=<encoded> is the panel's format
-        // Fixtures already return first_url like "/live/34751?url=..."
-        // But we don't have access to first_url in this context — use raw and encode
-        val enc = java.net.URLEncoder.encode(rawUrl, "UTF-8")
-        return "$mainUrl/live/0?url=$enc&u=$u&p=$p"
-    }
-
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val liveNow = mutableListOf<SearchResponse>()
         val upcoming = mutableListOf<SearchResponse>()
@@ -73,15 +62,17 @@ class NineBikProvider : MainAPI() {
                 val comp = o.optString("competition", "Match")
                 val isLive = o.optBoolean("is_playing", false)
                 val type = o.optString("type", "")
-                val id = o.optInt("id", 0)
-                val rawUrl = o.optString("raw_stream_url", "")
+                val firstUrl = o.optString("first_url", "")
 
-                if (rawUrl.isBlank() || id == 0) continue
+                if (firstUrl.isBlank()) continue
+
+                // first_url comes as "/live/34751?url=..." — prepend mainUrl
+                val fullUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
 
                 val displayName = "$home vs $away"
                 val item = newLiveSearchResponse(
                     displayName,
-                    proxiedStreamUrl(rawUrl),
+                    fullUrl,
                     TvType.Live
                 ) {
                     this.posterUrl = null
