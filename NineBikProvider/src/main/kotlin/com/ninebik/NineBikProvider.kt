@@ -100,6 +100,7 @@ class NineBikProvider : MainAPI() {
                 val p = cred("pass")
                 val sep = if (baseUrl.contains("?")) "&" else "?"
                 val fullUrl = "$baseUrl${sep}u=$u&p=$p"
+                android.util.Log.d("NineBik", "Match URL: " + fullUrl)
 
                 val displayName = "$home vs $away"
                 val logo = teamLogo(home)
