@@ -84,8 +84,7 @@ class NineBikProvider : MainAPI() {
         // CloudStream should immediately show a Play button
         return newLiveStreamLoadResponse(
             name = name,
-            url = url,
-            posterUrl = null
+            dataUrl = url
         )
     }
 
