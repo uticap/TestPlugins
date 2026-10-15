@@ -90,24 +90,30 @@ class NineBikProvider : MainAPI() {
 
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    if (!o.optBoolean("has_stream", false)) continue
-
-                    val firstUrl = o.optString("first_url", "")
-                    if (firstUrl.isBlank()) continue
 
                     val home = o.optString("home", "?")
                     val away = o.optString("away", "?")
                     val isLive = o.optBoolean("is_playing", false)
                     val type = o.optString("type", "")
-
-                    val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
-                    val u = cred("user")
-                    val p = cred("pass")
-                    val sep = if (baseUrl.contains("?")) "&" else "?"
-                    val fullUrl = "$baseUrl${sep}u=$u&p=$p"
+                    val hasStream = o.optBoolean("has_stream", false)
+                    val firstUrl = o.optString("first_url", "")
 
                     val displayName = "$home vs $away"
                     val logo = teamLogo(home)
+
+                    // Build URL: for matches with stream, use panel proxy. For those without, use placeholder.
+                    val fullUrl: String = if (hasStream && firstUrl.isNotBlank()) {
+                        val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
+                        val u = cred("user")
+                        val p = cred("pass")
+                        val sep = if (baseUrl.contains("?")) "&" else "?"
+                        "$baseUrl${sep}u=$u&p=$p"
+                    } else {
+                        // No stream yet - the tap will show a message
+                        mainUrl + "/no-stream?match=" + o.optInt("id", 0)
+                    }
+
+
                     val item = newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
                         this.posterUrl = logo
                     }
