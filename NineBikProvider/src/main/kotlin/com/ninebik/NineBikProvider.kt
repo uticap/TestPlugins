@@ -94,7 +94,12 @@ class NineBikProvider : MainAPI() {
                 if (firstUrl.isBlank()) continue
 
                 // first_url comes as "/live/34751?url=..." — prepend mainUrl
-                val fullUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
+                // Add panel auth via u/p params
+                val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
+                val u = cred("user")
+                val p = cred("pass")
+                val sep = if (baseUrl.contains("?")) "&" else "?"
+                val fullUrl = "$baseUrl${sep}u=$u&p=$p"
 
                 val displayName = "$home vs $away"
                 val logo = teamLogo(home)
