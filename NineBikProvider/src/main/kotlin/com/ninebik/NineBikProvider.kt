@@ -61,10 +61,10 @@ class NineBikProvider : MainAPI() {
 
     // ---------- Bootstrap from panel ----------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        // Refresh branding from panel (once per call; cheap)
+        // Refresh branding + content from panel
         refreshBranding()
 
-        // If no credentials yet, show a "Login" prompt row
+        // If no credentials yet, show activation prompt
         if (cred("user").isBlank() || cred("pass").isBlank()) {
             val items = listOf(
                 newLiveSearchResponse("⚠️ Tap the settings gear to activate", mainUrl, TvType.Live) {
@@ -74,55 +74,118 @@ class NineBikProvider : MainAPI() {
             return newHomePageResponse(listOf(HomePageList("Activation required", items)))
         }
 
-        val liveNow = mutableListOf<SearchResponse>()
-        val upcoming = mutableListOf<SearchResponse>()
-        val recent = mutableListOf<SearchResponse>()
+        val lists = mutableListOf<HomePageList>()
 
+        // === 1. LIVE MATCHES ===
         try {
             val url = mainUrl + "/api/fixtures"
             val resp = app.get(url).text
             val data = JSONObject(resp)
-            val arr = data.optJSONArray("fixtures") ?: return newHomePageResponse(
-                listOf(HomePageList("No matches available", emptyList()))
-            )
+            val arr = data.optJSONArray("fixtures")
 
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                if (!o.optBoolean("has_stream", false)) continue
+            if (arr != null) {
+                val liveNow = mutableListOf<SearchResponse>()
+                val upcoming = mutableListOf<SearchResponse>()
+                val recent = mutableListOf<SearchResponse>()
 
-                val firstUrl = o.optString("first_url", "")
-                if (firstUrl.isBlank()) continue
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    if (!o.optBoolean("has_stream", false)) continue
 
-                val home = o.optString("home", "?")
-                val away = o.optString("away", "?")
-                val isLive = o.optBoolean("is_playing", false)
-                val type = o.optString("type", "")
+                    val firstUrl = o.optString("first_url", "")
+                    if (firstUrl.isBlank()) continue
 
-                val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
-                val u = cred("user")
-                val p = cred("pass")
-                val sep = if (baseUrl.contains("?")) "&" else "?"
-                val fullUrl = "$baseUrl${sep}u=$u&p=$p"
+                    val home = o.optString("home", "?")
+                    val away = o.optString("away", "?")
+                    val isLive = o.optBoolean("is_playing", false)
+                    val type = o.optString("type", "")
 
-                val displayName = "$home vs $away"
-                val logo = teamLogo(home)
-                val item = newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
-                    this.posterUrl = logo
+                    val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
+                    val u = cred("user")
+                    val p = cred("pass")
+                    val sep = if (baseUrl.contains("?")) "&" else "?"
+                    val fullUrl = "$baseUrl${sep}u=$u&p=$p"
+
+                    val displayName = "$home vs $away"
+                    val logo = teamLogo(home)
+                    val item = newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
+                        this.posterUrl = logo
+                    }
+
+                    when {
+                        isLive -> liveNow.add(item)
+                        type.equals("Upcoming", ignoreCase = true) -> upcoming.add(item)
+                        else -> recent.add(item)
+                    }
                 }
-
-                when {
-                    isLive -> liveNow.add(item)
-                    type.equals("Upcoming", ignoreCase = true) -> upcoming.add(item)
-                    else -> recent.add(item)
-                }
+                if (liveNow.isNotEmpty()) lists.add(HomePageList("🔴 Live Now", liveNow))
+                if (upcoming.isNotEmpty()) lists.add(HomePageList("⏰ Upcoming", upcoming))
+                if (recent.isNotEmpty()) lists.add(HomePageList("✅ Recent", recent))
             }
         } catch (_: Exception) {}
 
-        val lists = mutableListOf<HomePageList>()
-        if (liveNow.isNotEmpty()) lists.add(HomePageList("🔴 Live Now", liveNow))
-        if (upcoming.isNotEmpty()) lists.add(HomePageList("⏰ Upcoming", upcoming))
-        if (recent.isNotEmpty()) lists.add(HomePageList("✅ Recent", recent))
-        if (lists.isEmpty()) lists.add(HomePageList("No matches available", emptyList()))
+        // === 2. CURATED CHANNELS ===
+        try {
+            val selectedCats = pref("content_categories", "").split("||").filter { it.isNotBlank() }
+            val incChannels = pref("content_include_channels", "false") == "true"
+
+            if (incChannels && selectedCats.isNotEmpty()) {
+                val url = mainUrl + "/player_api.php?username=" + cred("user") +
+                        "&password=" + cred("pass") + "&action=get_live_streams"
+                val resp = app.get(url).text
+                val arr = org.json.JSONArray(resp)
+
+                // Group by category
+                val byCat = mutableMapOf<String, MutableList<SearchResponse>>()
+
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val sid = o.optString("stream_id")
+                    val nm = o.optString("name")
+                    val icon = o.optString("stream_icon", "")
+                    val catId = o.optString("category_id", "")
+
+                    // Resolve category name — plugin will match against selected list by ID
+                    // Simpler: match by checking if any selected category name is contained
+                    // We use a flat match against all selected categories passed from panel
+                    val u = cred("user")
+                    val p = cred("pass")
+                    val streamUrl = "$mainUrl/live/$u/$p/$sid.ts"
+
+                    val item = newLiveSearchResponse(nm, streamUrl, TvType.Live) {
+                        this.posterUrl = icon.ifBlank { null }
+                    }
+                    byCat.getOrPut(catId) { mutableListOf() }.add(item)
+                }
+
+                // Now emit rows for the selected categories
+                // We need to know which cat_id maps to which name.
+                // Fetch categories list.
+                try {
+                    val catUrl = mainUrl + "/player_api.php?username=" + cred("user") +
+                            "&password=" + cred("pass") + "&action=get_live_categories"
+                    val catResp = app.get(catUrl).text
+                    val catArr = org.json.JSONArray(catResp)
+
+                    for (i in 0 until catArr.length()) {
+                        val co = catArr.getJSONObject(i)
+                        val cid = co.optString("category_id")
+                        val cname = co.optString("category_name")
+
+                        if (cname !in selectedCats) continue
+
+                        val items = byCat[cid] ?: continue
+                        if (items.isEmpty()) continue
+
+                        lists.add(HomePageList(cname, items))
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
+        if (lists.isEmpty()) {
+            lists.add(HomePageList("No content - check panel selection", emptyList()))
+        }
 
         return newHomePageResponse(lists)
     }
@@ -154,6 +217,23 @@ class NineBikProvider : MainAPI() {
                 if (newBase.isNotBlank()) {
                     mainUrl = newBase
                     name = b.optString("name", "9bik IPTV")
+                }
+
+                // Save content selection
+                val content = j.optJSONObject("content")
+                if (content != null) {
+                    val cats = content.optJSONArray("categories")
+                    val catNames = mutableListOf<String>()
+                    if (cats != null) {
+                        for (ci in 0 until cats.length()) {
+                            catNames.add(cats.getString(ci))
+                        }
+                    }
+                    savePref("content_categories", catNames.joinToString("||"))
+                    savePref("content_include_channels",
+                        content.optBoolean("include_channels", false).toString())
+                    savePref("content_include_matches",
+                        content.optBoolean("include_matches", true).toString())
                 }
 
                 savePref("brand_refreshed", System.currentTimeMillis().toString())
