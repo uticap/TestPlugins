@@ -39,6 +39,33 @@ class NineBikProvider : MainAPI() {
         }
     }
 
+    // Cache team logos so we don't hammer TheSportsDB
+    private val teamLogoCache = mutableMapOf<String, String>()
+
+    private suspend fun teamLogo(teamName: String): String? {
+        if (teamName.isBlank()) return null
+        teamLogoCache[teamName]?.let { return it.ifBlank { null } }
+        try {
+            val url = "https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=" +
+                    java.net.URLEncoder.encode(teamName, "UTF-8")
+            val txt = app.get(url).text
+            val j = org.json.JSONObject(txt)
+            val teams = j.optJSONArray("teams")
+            if (teams == null || teams.length() == 0) {
+                teamLogoCache[teamName] = ""
+                return null
+            }
+            val badge = teams.getJSONObject(0).optString("strBadge", "")
+            val logo = if (badge.isNotBlank()) badge
+                       else teams.getJSONObject(0).optString("strLogo", "")
+            teamLogoCache[teamName] = logo
+            return logo.ifBlank { null }
+        } catch (_: Exception) {
+            teamLogoCache[teamName] = ""
+            return null
+        }
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val liveNow = mutableListOf<SearchResponse>()
         val upcoming = mutableListOf<SearchResponse>()
@@ -70,12 +97,13 @@ class NineBikProvider : MainAPI() {
                 val fullUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
 
                 val displayName = "$home vs $away"
+                val logo = teamLogo(home)
                 val item = newLiveSearchResponse(
                     displayName,
                     fullUrl,
                     TvType.Live
                 ) {
-                    this.posterUrl = null
+                    this.posterUrl = logo
                 }
 
                 when {
