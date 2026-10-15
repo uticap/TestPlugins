@@ -84,24 +84,29 @@ class NineBikProvider : MainAPI() {
             val arr = data.optJSONArray("fixtures")
 
             if (arr != null) {
-                val liveNow = mutableListOf<SearchResponse>()
-                val upcoming = mutableListOf<SearchResponse>()
-                val recent = mutableListOf<SearchResponse>()
+                val liveByLeague = mutableMapOf<String, MutableList<SearchResponse>>()
+                val soonByLeague = mutableMapOf<String, MutableList<SearchResponse>>()
+
+                val now = System.currentTimeMillis()
 
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
 
                     val home = o.optString("home", "?")
                     val away = o.optString("away", "?")
+                    val league = o.optString("competition", "Other")
                     val isLive = o.optBoolean("is_playing", false)
-                    val type = o.optString("type", "")
                     val hasStream = o.optBoolean("has_stream", false)
                     val firstUrl = o.optString("first_url", "")
+                    val timeStr = o.optString("time", "")
+
+                    // Skip matches that already finished
+                    val type = o.optString("type", "")
+                    if (type.equals("Finished", ignoreCase = true)) continue
 
                     val displayName = "$home vs $away"
                     val logo = teamLogo(home)
 
-                    // Build URL: for matches with stream, use panel proxy. For those without, use placeholder.
                     val fullUrl: String = if (hasStream && firstUrl.isNotBlank()) {
                         val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
                         val u = cred("user")
@@ -109,24 +114,41 @@ class NineBikProvider : MainAPI() {
                         val sep = if (baseUrl.contains("?")) "&" else "?"
                         "$baseUrl${sep}u=$u&p=$p"
                     } else {
-                        // No stream yet - the tap will show a message
                         mainUrl + "/no-stream?match=" + o.optInt("id", 0)
                     }
 
+                    // Check start time — how many minutes until kickoff?
+                    var minutesToStart = Long.MAX_VALUE
+                    try {
+                        // Parse ISO 8601: 2026-10-15T16:45:00.000000Z
+                        val cleanTime = timeStr.replace("Z", "+00:00").substringBefore(".")
+                        val dt = java.time.OffsetDateTime.parse(cleanTime + "Z")
+                        val kickoffMs = dt.toInstant().toEpochMilli()
+                        minutesToStart = (kickoffMs - now) / 60000L
+                    } catch (_: Exception) {}
 
                     val item = newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
                         this.posterUrl = logo
                     }
 
-                    when {
-                        isLive -> liveNow.add(item)
-                        type.equals("Upcoming", ignoreCase = true) -> upcoming.add(item)
-                        else -> recent.add(item)
+                    if (isLive) {
+                        liveByLeague.getOrPut(league) { mutableListOf() }.add(item)
+                    } else if (minutesToStart in -5..30) {
+                        // Upcoming within 30 min (or kicked off up to 5 min ago but not marked live)
+                        soonByLeague.getOrPut(league) { mutableListOf() }.add(item)
                     }
+                    // else: too far in future, skip
                 }
-                if (liveNow.isNotEmpty()) lists.add(HomePageList("🔴 Live Now", liveNow))
-                if (upcoming.isNotEmpty()) lists.add(HomePageList("⏰ Upcoming", upcoming))
-                if (recent.isNotEmpty()) lists.add(HomePageList("✅ Recent", recent))
+
+                // Emit live categories (grouped by league)
+                for ((league, items) in liveByLeague.toList().sortedBy { it.first }) {
+                    lists.add(HomePageList("🔴 LIVE - $league", items))
+                }
+
+                // Emit upcoming categories (grouped by league)
+                for ((league, items) in soonByLeague.toList().sortedBy { it.first }) {
+                    lists.add(HomePageList("⏰ STARTS SOON - $league", items))
+                }
             }
         } catch (_: Exception) {}
 
