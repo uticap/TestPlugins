@@ -66,7 +66,7 @@ class NineBikProvider : MainAPI() {
                 val icon = o.optString("stream_icon", "")
                 items.add(
                     newLiveSearchResponse(nm, streamUrl(sid), TvType.Live) {
-                        this.posterUrl = icon.ifBlank { null }
+                        this.posterUrl = icon.ifBlank { "https://cdn.9bik.win/static/cloudstream-icon.png" }
                     }
                 )
             }
@@ -79,7 +79,14 @@ class NineBikProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? = null
 
     override suspend fun load(url: String): LoadResponse? {
-        return newLiveStreamLoadResponse(name, url, "")
+        val res = newLiveStreamLoadResponse(
+            name = "Live Stream",
+            url = url,
+            posterUrl = null
+        )
+        res.plot = "Live channel stream"
+        res.tags = listOf("Live")
+        return res
     }
 
     override suspend fun loadLinks(
