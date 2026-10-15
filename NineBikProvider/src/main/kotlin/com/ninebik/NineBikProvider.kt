@@ -216,24 +216,35 @@ class NineBikProvider : MainAPI() {
         return true
     }
 
-    // ---------- Activation ----------
+    // ---------- Activation (synchronous, no coroutines needed) ----------
     companion object {
-        suspend fun activateCode(ctx: Context, code: String): Boolean {
+        fun activateCode(ctx: Context, code: String): Boolean {
             val baseUrls = listOf(
                 "https://cdn.9bik.win",
                 "https://9bik.win",
                 "https://backup.9bik.win"
             )
-            val device = NineBikPlugin.getPref(ctx, "device_id", "").ifBlank {
-                val id = UUID.randomUUID().toString()
-                NineBikPlugin.setPref(ctx, "device_id", id)
-                id
+            var device = NineBikPlugin.getPref(ctx, "device_id", "")
+            if (device.isBlank()) {
+                device = UUID.randomUUID().toString()
+                NineBikPlugin.setPref(ctx, "device_id", device)
             }
+
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
 
             for (base in baseUrls) {
                 try {
                     val url = "$base/activate?code=$code&device=$device"
-                    val txt = app.get(url).text
+                    val req = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "9bik-plugin")
+                        .build()
+                    val resp = client.newCall(req).execute()
+                    val txt = resp.body?.string() ?: continue
+                    resp.close()
                     val j = JSONObject(txt)
                     val user = j.optString("user", "")
                     val pass = j.optString("pass", "")
