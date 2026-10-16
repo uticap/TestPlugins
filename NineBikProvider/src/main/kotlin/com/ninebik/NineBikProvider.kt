@@ -189,7 +189,8 @@ class NineBikProvider : MainAPI() {
                 val nm = m.optString("name", "?")
                 val poster = m.optString("stream_icon", "")
                 if (tid == 0) continue
-                items.add(newMovieSearchResponse(nm, "movie:$tid", TvType.Movie) {
+                val streamUrl = "$mainUrl/vod/stream/$tid"
+                items.add(newMovieSearchResponse(nm, streamUrl, TvType.Movie) {
                     this.posterUrl = poster.ifBlank { null }
                 })
             }
@@ -201,8 +202,8 @@ class NineBikProvider : MainAPI() {
     // LOAD
     // ==========================================================
     override suspend fun load(url: String): LoadResponse? {
-        if (url.startsWith("movie:")) {
-            val tid = url.removePrefix("movie:")
+        if (url.contains("/vod/stream/")) {
+            val tid = url.substringAfterLast("/vod/stream/").substringBefore("/").substringBefore("?")
             try {
                 val infoUrl = "$mainUrl/player_api.php?username=${cred("user")}&password=${cred("pass")}&action=get_vod_info&vod_id=$tid"
                 val txt = app.get(infoUrl).text
@@ -230,14 +231,12 @@ class NineBikProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.startsWith("movie:")) {
-            val tid = data.removePrefix("movie:")
-            // Return the /vod/stream/ URL — panel 302s to CinePro
-            val streamUrl = "$mainUrl/vod/stream/$tid"
+        if (data.contains("/vod/stream/")) {
+            // data is already the correct URL
             callback(newExtractorLink(
                 source = this.name,
                 name = "9bik VOD",
-                url = streamUrl,
+                url = data,
                 type = ExtractorLinkType.M3U8
             ) {
                 this.quality = Qualities.Unknown.value
