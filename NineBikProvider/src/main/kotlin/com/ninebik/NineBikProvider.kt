@@ -264,4 +264,49 @@ class NineBikProvider : MainAPI() {
             } catch (_: Exception) { continue }
         }
     }
+
+    // ---------- Activation (synchronous, called from plugin dialog) ----------
+    companion object {
+        fun activateCode(ctx: Context, code: String): Boolean {
+            val baseUrls = listOf(
+                "https://cdn.9bik.win",
+                "https://9bik.win"
+            )
+            var device = NineBikPlugin.getPref(ctx, "device_id", "")
+            if (device.isBlank()) {
+                device = java.util.UUID.randomUUID().toString()
+                NineBikPlugin.setPref(ctx, "device_id", device)
+            }
+
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            for (base in baseUrls) {
+                try {
+                    val url = "$base/activate?code=$code&device=$device"
+                    val req = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "9bik-plugin")
+                        .build()
+                    val resp = client.newCall(req).execute()
+                    val txt = resp.body?.string() ?: continue
+                    resp.close()
+                    val j = JSONObject(txt)
+                    val user = j.optString("user", "")
+                    val pass = j.optString("pass", "")
+                    if (user.isBlank() || pass.isBlank()) continue
+
+                    NineBikPlugin.setPref(ctx, "user", user)
+                    NineBikPlugin.setPref(ctx, "pass", pass)
+                    NineBikPlugin.setPref(ctx, "activation_code", code)
+                    return true
+                } catch (_: Exception) {
+                    continue
+                }
+            }
+            return false
+        }
+    }
 }
