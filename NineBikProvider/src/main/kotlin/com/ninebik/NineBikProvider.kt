@@ -232,7 +232,7 @@ class NineBikProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         if (data.contains("/vod/stream/")) {
-            // data is already the correct URL
+            // The panel now proxies the m3u8 - CloudStream never sees CinePro
             callback(newExtractorLink(
                 source = this.name,
                 name = "9bik VOD",
@@ -240,6 +240,7 @@ class NineBikProvider : MainAPI() {
                 type = ExtractorLinkType.M3U8
             ) {
                 this.quality = Qualities.Unknown.value
+                this.referer = mainUrl
             })
             return true
         }
