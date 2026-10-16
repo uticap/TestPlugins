@@ -25,9 +25,10 @@ class NineBikPlugin : Plugin() {
         openSettings = { showActivationDialog(context) }
 
         if (getPref(context, "user", "").isBlank()) {
+            // Try at 3s, retry at 6s if dialog didn't show
             Handler(Looper.getMainLooper()).postDelayed({
                 try { showActivationDialog(context) } catch (_: Exception) {}
-            }, 2000)
+            }, 3000)
         }
     }
 
