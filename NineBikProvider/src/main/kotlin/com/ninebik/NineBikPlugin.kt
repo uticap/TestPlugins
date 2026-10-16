@@ -22,10 +22,8 @@ class NineBikPlugin : Plugin() {
         appContext = context
         registerMainAPI(NineBikProvider())
 
-        // Settings gear opens the same branded dialog
         openSettings = { showActivationDialog(context) }
 
-        // Auto-prompt on first launch if no credentials are stored
         if (getPref(context, "user", "").isBlank()) {
             Handler(Looper.getMainLooper()).postDelayed({
                 try { showActivationDialog(context) } catch (_: Exception) {}
@@ -34,7 +32,6 @@ class NineBikPlugin : Plugin() {
     }
 
     private fun showActivationDialog(ctx: Context) {
-        // Try to load cached branding from prefs
         val appName = getPref(ctx, "brand_name", "9bik IPTV")
         val tagline = getPref(ctx, "brand_tagline", "Premium Live TV & Sports")
         val welcomeText = getPref(ctx, "brand_welcome", "Enter your activation code to continue")
@@ -140,13 +137,8 @@ class NineBikPlugin : Plugin() {
             btn.isEnabled = false
             btn.text = "Activating..."
 
-            // Fire network call in background thread
             Thread {
-                val ok = try {
-                    NineBikProvider.activateCode(ctx, code)
-                } catch (_: Exception) {
-                    false
-                }
+                val ok = NineBikProvider.activateCode(ctx, code)
                 Handler(Looper.getMainLooper()).post {
                     if (ok) {
                         Toast.makeText(ctx, "Activated! Open the provider to browse.", Toast.LENGTH_LONG).show()
