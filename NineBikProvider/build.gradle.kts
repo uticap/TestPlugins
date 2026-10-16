@@ -1,4 +1,4 @@
-version = 21
+version = 22
 
 cloudstream {
     description = "Watch live channels from 9bik.win"

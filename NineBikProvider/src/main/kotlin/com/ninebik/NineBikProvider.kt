@@ -10,269 +10,208 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 class NineBikProvider : MainAPI() {
     override var mainUrl = "https://cdn.9bik.win"
     override var name = "9bik IPTV"
     override var lang = "en"
-    override val supportedTypes = setOf(TvType.Live)
+    override val supportedTypes = setOf(TvType.Live, TvType.Movie)
     override val hasMainPage = true
     override val hasQuickSearch = false
     override val hasDownloadSupport = false
 
-    private val teamLogoCache = mutableMapOf<String, String>()
-
-    // Multi-URL bootstrap for panel (in case main URL changes)
-    private val bootstrapUrls = listOf(
-        "https://cdn.9bik.win/plugin/config",
-        "https://9bik.win/plugin/config",
-        "https://backup.9bik.win/plugin/config"
+    override val mainPage = mainPageOf(
+        "live_matches" to "🔴 Live Matches",
+        "movies_trending" to "🔥 Trending Movies",
+        "movies_popular" to "⭐ Popular Movies",
+        "movies_top_rated" to "🏆 Top Rated",
+        "movies_now_playing" to "🎬 Now Playing",
     )
 
-    // ---------- Preferences ----------
+    private val teamLogoCache = mutableMapOf<String, String>()
+
     private fun pref(key: String, def: String = ""): String {
         val ctx = NineBikPlugin.appContext ?: return def
         return NineBikPlugin.getPref(ctx, key, def)
     }
 
-    private fun savePref(key: String, value: String) {
-        val ctx = NineBikPlugin.appContext ?: return
-        NineBikPlugin.setPref(ctx, key, value)
-    }
-
-    private fun deviceId(): String {
-        var id = pref("device_id", "")
-        if (id.isBlank()) {
-            id = UUID.randomUUID().toString()
-            savePref("device_id", id)
-        }
-        return id
-    }
-
     private fun cred(key: String): String = pref(key, "")
 
-    // ---------- Bootstrap from panel ----------
+    // ---------- MAIN PAGE ----------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        // Refresh branding + content from panel
         refreshBranding()
 
-        // If no credentials yet, show activation prompt
         if (cred("user").isBlank() || cred("pass").isBlank()) {
-            val items = listOf(
-                newLiveSearchResponse("⚠️ Tap the settings gear to activate", mainUrl, TvType.Live) {
-                    this.posterUrl = null
-                }
+            return newHomePageResponse(
+                listOf(HomePageList("Activation required", listOf(
+                    newLiveSearchResponse("⚠️ Tap the settings gear to activate", mainUrl, TvType.Live) {
+                        this.posterUrl = null
+                    }
+                )))
             )
-            return newHomePageResponse(listOf(HomePageList("Activation required", items)))
         }
 
-        val lists = mutableListOf<HomePageList>()
+        return when {
+            request.data == "live_matches" -> fetchLiveMatches(request)
+            request.data.startsWith("movies_") -> {
+                val cat = request.data.removePrefix("movies_")
+                fetchMovies(cat, request)
+            }
+            else -> newHomePageResponse(listOf(HomePageList(request.name, emptyList())))
+        }
+    }
 
-        // === 1. LIVE MATCHES ===
+    private suspend fun fetchLiveMatches(request: MainPageRequest): HomePageResponse {
+        val items = mutableListOf<SearchResponse>()
         try {
             val url = mainUrl + "/api/fixtures"
-            val resp = app.get(url).text
-            val data = JSONObject(resp)
-            val arr = data.optJSONArray("fixtures")
+            val txt = app.get(url).text
+            val data = JSONObject(txt)
+            val arr = data.optJSONArray("fixtures") ?: JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                if (!o.optBoolean("has_stream", false)) continue
+                val firstUrl = o.optString("first_url", "")
+                if (firstUrl.isBlank()) continue
 
-            if (arr != null) {
-                val liveByLeague = mutableMapOf<String, MutableList<SearchResponse>>()
-                val soonByLeague = mutableMapOf<String, MutableList<SearchResponse>>()
+                val home = o.optString("home", "?")
+                val away = o.optString("away", "?")
+                val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
+                val u = cred("user")
+                val p = cred("pass")
+                val sep = if (baseUrl.contains("?")) "&" else "?"
+                val fullUrl = "$baseUrl${sep}u=$u&p=$p"
 
-                val now = System.currentTimeMillis()
-
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-
-                    val home = o.optString("home", "?")
-                    val away = o.optString("away", "?")
-                    val league = o.optString("competition", "Other")
-                    val isLive = o.optBoolean("is_playing", false)
-                    val hasStream = o.optBoolean("has_stream", false)
-                    val firstUrl = o.optString("first_url", "")
-                    val timeStr = o.optString("time", "")
-
-                    // Skip matches that already finished
-                    val type = o.optString("type", "")
-                    if (type.equals("Finished", ignoreCase = true)) continue
-
-                    val displayName = "$home vs $away"
-                    val logo = teamLogo(home)
-
-                    val fullUrl: String = if (hasStream && firstUrl.isNotBlank()) {
-                        val baseUrl = if (firstUrl.startsWith("http")) firstUrl else mainUrl + firstUrl
-                        val u = cred("user")
-                        val p = cred("pass")
-                        val sep = if (baseUrl.contains("?")) "&" else "?"
-                        "$baseUrl${sep}u=$u&p=$p"
-                    } else {
-                        mainUrl + "/no-stream?match=" + o.optInt("id", 0)
-                    }
-
-                    // Check start time — how many minutes until kickoff?
-                    var minutesToStart = Long.MAX_VALUE
-                    try {
-                        // Parse ISO 8601: 2026-10-15T16:45:00.000000Z
-                        val cleanTime = timeStr.replace("Z", "+00:00").substringBefore(".")
-                        val dt = java.time.OffsetDateTime.parse(cleanTime + "Z")
-                        val kickoffMs = dt.toInstant().toEpochMilli()
-                        minutesToStart = (kickoffMs - now) / 60000L
-                    } catch (_: Exception) {}
-
-                    val item = newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
-                        this.posterUrl = logo
-                    }
-
-                    if (isLive) {
-                        liveByLeague.getOrPut(league) { mutableListOf() }.add(item)
-                    } else if (minutesToStart in -5..30) {
-                        // Upcoming within 30 min (or kicked off up to 5 min ago but not marked live)
-                        soonByLeague.getOrPut(league) { mutableListOf() }.add(item)
-                    }
-                    // else: too far in future, skip
-                }
-
-                // Emit live categories (grouped by league)
-                for ((league, items) in liveByLeague.toList().sortedBy { it.first }) {
-                    lists.add(HomePageList("🔴 LIVE - $league", items))
-                }
-
-                // Emit upcoming categories (grouped by league)
-                for ((league, items) in soonByLeague.toList().sortedBy { it.first }) {
-                    lists.add(HomePageList("⏰ STARTS SOON - $league", items))
-                }
+                val displayName = "$home vs $away"
+                val logo = teamLogo(home)
+                items.add(newLiveSearchResponse(displayName, fullUrl, TvType.Live) {
+                    this.posterUrl = logo
+                })
             }
         } catch (_: Exception) {}
+        return newHomePageResponse(listOf(HomePageList(request.name, items)))
+    }
 
-        // === 2. CURATED CHANNELS ===
+    private suspend fun fetchMovies(catId: String, request: MainPageRequest): HomePageResponse {
+        val items = mutableListOf<SearchResponse>()
         try {
-            val selectedCats = pref("content_categories", "").split("||").filter { it.isNotBlank() }
-            val incChannels = pref("content_include_channels", "false") == "true"
-
-            if (incChannels && selectedCats.isNotEmpty()) {
-                val url = mainUrl + "/player_api.php?username=" + cred("user") +
-                        "&password=" + cred("pass") + "&action=get_live_streams"
-                val resp = app.get(url).text
-                val arr = org.json.JSONArray(resp)
-
-                // Group by category
-                val byCat = mutableMapOf<String, MutableList<SearchResponse>>()
-
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    val sid = o.optString("stream_id")
-                    val nm = o.optString("name")
-                    val icon = o.optString("stream_icon", "")
-                    val catId = o.optString("category_id", "")
-
-                    // Resolve category name — plugin will match against selected list by ID
-                    // Simpler: match by checking if any selected category name is contained
-                    // We use a flat match against all selected categories passed from panel
-                    val u = cred("user")
-                    val p = cred("pass")
-                    val streamUrl = "$mainUrl/live/$u/$p/$sid.ts"
-
-                    val item = newLiveSearchResponse(nm, streamUrl, TvType.Live) {
-                        this.posterUrl = icon.ifBlank { null }
-                    }
-                    byCat.getOrPut(catId) { mutableListOf() }.add(item)
-                }
-
-                // Now emit rows for the selected categories
-                // We need to know which cat_id maps to which name.
-                // Fetch categories list.
-                try {
-                    val catUrl = mainUrl + "/player_api.php?username=" + cred("user") +
-                            "&password=" + cred("pass") + "&action=get_live_categories"
-                    val catResp = app.get(catUrl).text
-                    val catArr = org.json.JSONArray(catResp)
-
-                    for (i in 0 until catArr.length()) {
-                        val co = catArr.getJSONObject(i)
-                        val cid = co.optString("category_id")
-                        val cname = co.optString("category_name")
-
-                        if (cname !in selectedCats) continue
-
-                        val items = byCat[cid] ?: continue
-                        if (items.isEmpty()) continue
-
-                        lists.add(HomePageList(cname, items))
-                    }
-                } catch (_: Exception) {}
+            val url = mainUrl + "/player_api.php?username=" + cred("user") +
+                    "&password=" + cred("pass") + "&action=get_vod_streams&category_id=" + catId
+            val txt = app.get(url).text
+            val arr = JSONArray(txt)
+            for (i in 0 until arr.length()) {
+                val m = arr.getJSONObject(i)
+                val tid = m.optInt("stream_id")
+                val nm = m.optString("name", "?")
+                val poster = m.optString("stream_icon", "")
+                if (tid == 0) continue
+                items.add(newMovieSearchResponse(nm, "movie:$tid", TvType.Movie) {
+                    this.posterUrl = poster.ifBlank { null }
+                })
             }
         } catch (_: Exception) {}
-
-        if (lists.isEmpty()) {
-            lists.add(HomePageList("No content - check panel selection", emptyList()))
-        }
-
-        return newHomePageResponse(lists)
+        return newHomePageResponse(listOf(HomePageList(request.name, items)))
     }
 
-    // ---------- Branding refresh ----------
-    private suspend fun refreshBranding() {
-        // Only refresh if older than 1 hour
-        val last = pref("brand_refreshed", "0").toLongOrNull() ?: 0L
-        if (System.currentTimeMillis() - last < 3_600_000L) return
-
-        for (url in bootstrapUrls) {
+    // ---------- LOAD (details page) ----------
+    override suspend fun load(url: String): LoadResponse? {
+        if (url.startsWith("movie:")) {
+            val tid = url.removePrefix("movie:")
             try {
-                val txt = app.get(url).text
+                val infoUrl = mainUrl + "/player_api.php?username=" + cred("user") +
+                        "&password=" + cred("pass") + "&action=get_vod_info&vod_id=" + tid
+                val txt = app.get(infoUrl).text
                 val j = JSONObject(txt)
-                val b = j.optJSONObject("branding") ?: continue
-                val a = j.optJSONObject("api")
+                val info = j.optJSONObject("info") ?: JSONObject()
+                val movie = j.optJSONObject("movie_data") ?: JSONObject()
 
-                savePref("brand_name", b.optString("name", "9bik IPTV"))
-                savePref("brand_tagline", b.optString("tagline", ""))
-                savePref("brand_welcome", b.optString("welcome_text", ""))
-                savePref("brand_button", b.optString("button_label", "Activate"))
-                savePref("brand_footer", b.optString("footer_text", ""))
-                savePref("brand_primary", b.optString("primary_color", "#5c6bc0"))
-                savePref("brand_secondary", b.optString("secondary_color", "#0a0e27"))
-                savePref("brand_accent", b.optString("accent_color", "#7986cb"))
+                val nm = info.optString("name", movie.optString("name", "Movie"))
+                val plot = info.optString("plot", info.optString("description", ""))
+                val poster = info.optString("movie_image", info.optString("cover_big", ""))
 
-                // Update mainUrl if panel says so
-                val newBase = a?.optString("base_url", "") ?: ""
-                if (newBase.isNotBlank()) {
-                    mainUrl = newBase
-                    name = b.optString("name", "9bik IPTV")
+                return newMovieLoadResponse(nm, url, TvType.Movie, url) {
+                    this.posterUrl = poster.ifBlank { null }
+                    this.plot = plot.ifBlank { null }
                 }
-
-                // Save content selection
-                val content = j.optJSONObject("content")
-                if (content != null) {
-                    val cats = content.optJSONArray("categories")
-                    val catNames = mutableListOf<String>()
-                    if (cats != null) {
-                        for (ci in 0 until cats.length()) {
-                            catNames.add(cats.getString(ci))
-                        }
-                    }
-                    savePref("content_categories", catNames.joinToString("||"))
-                    savePref("content_include_channels",
-                        content.optBoolean("include_channels", false).toString())
-                    savePref("content_include_matches",
-                        content.optBoolean("include_matches", true).toString())
-                }
-
-                savePref("brand_refreshed", System.currentTimeMillis().toString())
-                return
             } catch (_: Exception) {
-                continue
+                return null
             }
         }
+        // Live stream
+        return newLiveStreamLoadResponse(name, url, url)
     }
 
-    // ---------- Team logo ----------
+    // ---------- LOAD LINKS (play button) ----------
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        if (data.startsWith("movie:")) {
+            val tid = data.removePrefix("movie:")
+            try {
+                val playUrl = mainUrl + "/vod/play/" + tid
+                val txt = app.get(playUrl).text
+                val j = JSONObject(txt)
+                val sources = j.optJSONArray("sources")
+                if (sources != null && sources.length() > 0) {
+                    // Prefer HLS
+                    var picked: JSONObject? = null
+                    for (i in 0 until sources.length()) {
+                        val s = sources.getJSONObject(i)
+                        if (s.optString("type") == "hls") { picked = s; break }
+                    }
+                    if (picked == null) picked = sources.getJSONObject(0)
+
+                    val url = picked.optString("url", "")
+                    val quality = picked.optString("quality", "1080p")
+                    if (url.isNotBlank()) {
+                        val qInt = when {
+                            quality.contains("1080") -> Qualities.P1080.value
+                            quality.contains("720") -> Qualities.P720.value
+                            quality.contains("480") -> Qualities.P480.value
+                            else -> Qualities.Unknown.value
+                        }
+                        callback(newExtractorLink(
+                            source = this.name,
+                            name = "9bik VOD",
+                            url = url,
+                            type = ExtractorLinkType.M3U8
+                        ) {
+                            this.quality = qInt
+                        })
+                        return true
+                    }
+                }
+            } catch (_: Exception) {}
+            return false
+        }
+        // Live stream URL — pass through
+        callback(newExtractorLink(
+            source = this.name,
+            name = "9bik Live",
+            url = data,
+            type = ExtractorLinkType.M3U8
+        ) {
+            this.quality = Qualities.Unknown.value
+        })
+        return true
+    }
+
+    // ---------- HELPERS ----------
     private suspend fun teamLogo(teamName: String): String? {
         if (teamName.isBlank()) return null
         teamLogoCache[teamName]?.let { return it.ifBlank { null } }
@@ -297,76 +236,32 @@ class NineBikProvider : MainAPI() {
         }
     }
 
-    override suspend fun search(query: String): List<SearchResponse>? = null
+    private suspend fun refreshBranding() {
+        val last = pref("brand_refreshed", "0").toLongOrNull() ?: 0L
+        if (System.currentTimeMillis() - last < 3_600_000L) return
 
-    override suspend fun load(url: String): LoadResponse? {
-        return newLiveStreamLoadResponse(name = name, url = url, dataUrl = url)
-    }
-
-    override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val userAgent = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36"
-        callback(
-            newExtractorLink(
-                source = this.name,
-                name = "9bik Live",
-                url = data,
-                type = ExtractorLinkType.M3U8
-            ) {
-                this.referer = mainUrl
-                this.headers = mapOf("User-Agent" to userAgent)
-            }
+        val urls = listOf(
+            "https://cdn.9bik.win/plugin/config",
+            "https://9bik.win/plugin/config"
         )
-        return true
-    }
+        for (url in urls) {
+            try {
+                val txt = app.get(url).text
+                val j = JSONObject(txt)
+                val b = j.optJSONObject("branding") ?: continue
 
-    // ---------- Activation (synchronous, no coroutines needed) ----------
-    companion object {
-        fun activateCode(ctx: Context, code: String): Boolean {
-            val baseUrls = listOf(
-                "https://cdn.9bik.win",
-                "https://9bik.win",
-                "https://backup.9bik.win"
-            )
-            var device = NineBikPlugin.getPref(ctx, "device_id", "")
-            if (device.isBlank()) {
-                device = UUID.randomUUID().toString()
-                NineBikPlugin.setPref(ctx, "device_id", device)
-            }
-
-            val client = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-
-            for (base in baseUrls) {
-                try {
-                    val url = "$base/activate?code=$code&device=$device"
-                    val req = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("User-Agent", "9bik-plugin")
-                        .build()
-                    val resp = client.newCall(req).execute()
-                    val txt = resp.body?.string() ?: continue
-                    resp.close()
-                    val j = JSONObject(txt)
-                    val user = j.optString("user", "")
-                    val pass = j.optString("pass", "")
-                    if (user.isBlank() || pass.isBlank()) continue
-
-                    NineBikPlugin.setPref(ctx, "user", user)
-                    NineBikPlugin.setPref(ctx, "pass", pass)
-                    NineBikPlugin.setPref(ctx, "activation_code", code)
-                    return true
-                } catch (_: Exception) {
-                    continue
-                }
-            }
-            return false
+                val ctx = NineBikPlugin.appContext ?: continue
+                NineBikPlugin.setPref(ctx, "brand_name", b.optString("name", "9bik IPTV"))
+                NineBikPlugin.setPref(ctx, "brand_tagline", b.optString("tagline", ""))
+                NineBikPlugin.setPref(ctx, "brand_welcome", b.optString("welcome_text", ""))
+                NineBikPlugin.setPref(ctx, "brand_button", b.optString("button_label", "Activate"))
+                NineBikPlugin.setPref(ctx, "brand_footer", b.optString("footer_text", ""))
+                NineBikPlugin.setPref(ctx, "brand_primary", b.optString("primary_color", "#5c6bc0"))
+                NineBikPlugin.setPref(ctx, "brand_secondary", b.optString("secondary_color", "#0a0e27"))
+                NineBikPlugin.setPref(ctx, "brand_accent", b.optString("accent_color", "#7986cb"))
+                NineBikPlugin.setPref(ctx, "brand_refreshed", System.currentTimeMillis().toString())
+                return
+            } catch (_: Exception) { continue }
         }
     }
 }
