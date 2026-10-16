@@ -232,12 +232,12 @@ class NineBikProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         if (data.contains("/vod/stream/")) {
-            // The panel proxies the MP4 - use MP4 type so CloudStream doesn't try to parse as HLS
+            // MovieBox MP4 stream — let CloudStream auto-detect the format from URL
             callback(newExtractorLink(
                 source = this.name,
                 name = "9bik VOD",
                 url = data,
-                type = ExtractorLinkType.MP4
+                type = ExtractorLinkType.VIDEO
             ) {
                 this.quality = Qualities.Unknown.value
                 this.referer = mainUrl
