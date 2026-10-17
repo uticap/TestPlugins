@@ -262,7 +262,7 @@ class NineBikProvider : MainAPI() {
                 val nm = s.optString("name", "?")
                 val poster = s.optString("cover", "")
                 if (sid.isBlank()) continue
-                val seriesUrl = "SERIES://" + sid
+                val seriesUrl = "https://9bik.local/series/" + sid
                 items.add(newTvSeriesSearchResponse(nm, seriesUrl, TvType.TvSeries) {
                     this.posterUrl = poster.ifBlank { null }
                 })
@@ -294,8 +294,8 @@ class NineBikProvider : MainAPI() {
         }
 
         // --- SERIES detail ---
-        if (url.startsWith("SERIES://")) {
-            val sid = url.removePrefix("SERIES://")
+        if (url.contains("9bik.local/series/")) {
+            val sid = url.substringAfter("9bik.local/series/").substringBefore("/").substringBefore("?")
             try {
                 val u = cred("user"); val p = cred("pass")
                 val infoUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_series_info&series_id=$sid"
