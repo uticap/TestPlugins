@@ -337,7 +337,6 @@ class NineBikProvider : MainAPI() {
                 return newTvSeriesLoadResponse(nm, url, TvType.TvSeries, episodesList) {
                     this.posterUrl = poster.ifBlank { null }
                     this.plot = plot.ifBlank { null }
-                    this.rating = rating
                 }
             } catch (_: Exception) { return null }
         }
