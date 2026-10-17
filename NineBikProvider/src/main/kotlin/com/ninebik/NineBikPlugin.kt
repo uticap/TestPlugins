@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class NineBikPlugin : Plugin() {
     override fun load(context: Context) {
         appContext = context
+        currentPlugin = this
         registerMainAPI(NineBikProvider())
 
         openSettings = { showActivationDialog(context) }
@@ -157,6 +158,18 @@ class NineBikPlugin : Plugin() {
     }
 
     companion object {
+        private var currentPlugin: NineBikPlugin? = null
+
+        fun triggerActivationDialog() {
+            val ctx = appContext ?: return
+            currentPlugin?.let {
+                if (getPref(ctx, "user", "").isBlank()) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try { it.showActivationDialog(ctx) } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
         var appContext: Context? = null
 
         fun getPref(ctx: Context, key: String, def: String): String {
