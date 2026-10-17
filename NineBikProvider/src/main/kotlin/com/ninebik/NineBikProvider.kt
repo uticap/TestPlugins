@@ -275,18 +275,23 @@ class NineBikProvider : MainAPI() {
     // LOAD
     // ==========================================================
     override suspend fun load(url: String): LoadResponse? {
-        if (url.contains("/vod/stream/")) {
-            val tid = url.substringAfterLast("/vod/stream/").substringBefore("/").substringBefore("?")
+        if (url.contains("/vod/stream/") || url.contains("9bik.local/movie/")) {
+            val tid = if (url.contains("9bik.local/movie/")) {
+                url.substringAfter("9bik.local/movie/").substringBefore("/").substringBefore("?")
+            } else {
+                url.substringAfterLast("/vod/stream/").substringBefore("/").substringBefore("?")
+            }
             try {
-                val infoUrl = "$mainUrl/player_api.php?username=${cred("user")}&password=${cred("pass")}&action=get_vod_info&vod_id=$tid"
+                val u = cred("user"); val p = cred("pass")
+                val infoUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_vod_info&vod_id=$tid"
                 val txt = app.get(infoUrl).text
                 val j = JSONObject(txt)
                 val info = j.optJSONObject("info") ?: JSONObject()
-                val movie = j.optJSONObject("movie_data") ?: JSONObject()
-                val nm = info.optString("name", movie.optString("name", "Movie"))
+                val nm = info.optString("name", "Movie")
                 val plot = info.optString("plot", info.optString("description", ""))
                 val poster = info.optString("movie_image", info.optString("cover_big", ""))
-                return newMovieLoadResponse(nm, url, TvType.Movie, url) {
+                val streamUrl = "$mainUrl/movie/$u/$p/$tid.mp4"
+                return newMovieLoadResponse(nm, url, TvType.Movie, streamUrl) {
                     this.posterUrl = poster.ifBlank { null }
                     this.plot = plot.ifBlank { null }
                 }
