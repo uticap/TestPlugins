@@ -234,12 +234,13 @@ class NineBikProvider : MainAPI() {
             val arr = JSONArray(txt)
             for (i in 0 until arr.length()) {
                 val m = arr.getJSONObject(i)
-                val tid = m.optInt("stream_id")
+                val tid = m.optString("stream_id", "")
                 val nm = m.optString("name", "?")
                 val poster = m.optString("stream_icon", "")
-                if (tid == 0) continue
-                val streamUrl = "$mainUrl/vod/stream/$tid"
-                items.add(newMovieSearchResponse(nm, streamUrl, TvType.Movie) {
+                if (tid.isBlank()) continue
+                // Use our new custom scheme
+                val movieUrl = "https://9bik.local/movie/$tid"
+                items.add(newMovieSearchResponse(nm, movieUrl, TvType.Movie) {
                     this.posterUrl = poster.ifBlank { null }
                 })
             }
@@ -275,25 +276,27 @@ class NineBikProvider : MainAPI() {
     // LOAD
     // ==========================================================
     override suspend fun load(url: String): LoadResponse? {
-        if (url.contains("/vod/stream/") || url.contains("9bik.local/movie/")) {
-            val tid = if (url.contains("9bik.local/movie/")) {
-                url.substringAfter("9bik.local/movie/").substringBefore("/").substringBefore("?")
-            } else {
-                url.substringAfterLast("/vod/stream/").substringBefore("/").substringBefore("?")
-            }
+        if (url.contains("9bik.local/movie/")) {
+            val tid = url.substringAfter("9bik.local/movie/").substringBefore("/").substringBefore("?")
             try {
                 val u = cred("user"); val p = cred("pass")
                 val infoUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_vod_info&vod_id=$tid"
                 val txt = app.get(infoUrl).text
                 val j = JSONObject(txt)
                 val info = j.optJSONObject("info") ?: JSONObject()
-                val nm = info.optString("name", "Movie")
-                val plot = info.optString("plot", info.optString("description", ""))
-                val poster = info.optString("movie_image", info.optString("cover_big", ""))
+                
+                var nm = info.optString("name", "")
+                if (nm.isBlank() || nm == "Movie") nm = info.optString("o_name", "Unknown Movie")
+                
+                val plot = info.optString("plot", info.optString("description", "No plot available."))
+                var poster = info.optString("movie_image", info.optString("cover_big", ""))
+                if (poster.isBlank()) poster = info.optString("backdrop_path", "")
+
                 val streamUrl = "$mainUrl/movie/$u/$p/$tid.mp4"
+                
                 return newMovieLoadResponse(nm, url, TvType.Movie, streamUrl) {
                     this.posterUrl = poster.ifBlank { null }
-                    this.plot = plot.ifBlank { null }
+                    this.plot = plot
                 }
             } catch (_: Exception) { return null }
         }
