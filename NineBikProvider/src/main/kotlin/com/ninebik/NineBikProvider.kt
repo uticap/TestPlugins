@@ -1,6 +1,7 @@
 package com.ninebik
 
 import android.content.Context
+import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
@@ -10,11 +11,14 @@ import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newLiveSearchResponse
 import com.lagradost.cloudstream3.newLiveStreamLoadResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
@@ -26,7 +30,7 @@ class NineBikProvider : MainAPI() {
     override var mainUrl = "https://cdn.9bik.win"
     override var name = "9bik IPTV"
     override var lang = "en"
-    override val supportedTypes = setOf(TvType.Live, TvType.Movie)
+    override val supportedTypes = setOf(TvType.Live, TvType.Movie, TvType.TvSeries)
     override val hasMainPage = true
     override val hasQuickSearch = false
     override val hasDownloadSupport = false
@@ -162,9 +166,54 @@ class NineBikProvider : MainAPI() {
         // === 3. MOVIES (only if enabled) ===
         val incMovies = pref("content_include_movies", "true") == "true"
         if (incMovies) {
-            lists.add(HomePageList("🔥 Trending Movies", fetchMovies("trending")))
-            lists.add(HomePageList("⭐ Popular Movies", fetchMovies("popular")))
-            lists.add(HomePageList("🏆 Top Rated", fetchMovies("top_rated")))
+            try {
+                val u = cred("user"); val p = cred("pass")
+                val catUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_vod_categories"
+                val catTxt = app.get(catUrl).text
+                val catArr = JSONArray(catTxt)
+                var added = 0
+                for (i in 0 until catArr.length()) {
+                    val c = catArr.getJSONObject(i)
+                    val cid = c.optString("category_id")
+                    val cnm = c.optString("category_name", "Movies")
+                    if (cid.isBlank()) continue
+                    val movs = fetchMovies(cid)
+                    if (movs.isNotEmpty()) {
+                        lists.add(HomePageList(cnm, movs))
+                        added++
+                    }
+                }
+                if (added == 0) {
+                    lists.add(HomePageList("🔥 Trending Movies", fetchMovies("trending")))
+                    lists.add(HomePageList("⭐ Popular Movies", fetchMovies("popular")))
+                    lists.add(HomePageList("🏆 Top Rated", fetchMovies("top_rated")))
+                }
+            } catch (_: Exception) {
+                lists.add(HomePageList("🔥 Trending Movies", fetchMovies("trending")))
+                lists.add(HomePageList("⭐ Popular Movies", fetchMovies("popular")))
+                lists.add(HomePageList("🏆 Top Rated", fetchMovies("top_rated")))
+            }
+        }
+
+        // === 4. TV SERIES (only if enabled) ===
+        val incSeries = pref("content_include_series", "true") == "true"
+        if (incSeries) {
+            try {
+                val u = cred("user"); val p = cred("pass")
+                val catUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_series_categories"
+                val catTxt = app.get(catUrl).text
+                val catArr = JSONArray(catTxt)
+                for (i in 0 until catArr.length()) {
+                    val c = catArr.getJSONObject(i)
+                    val cid = c.optString("category_id")
+                    val cnm = c.optString("category_name", "TV Series")
+                    if (cid.isBlank()) continue
+                    val shows = fetchSeriesFolder(cid)
+                    if (shows.isNotEmpty()) {
+                        lists.add(HomePageList(cnm, shows))
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         if (lists.isEmpty()) {
@@ -199,6 +248,30 @@ class NineBikProvider : MainAPI() {
     }
 
     // ==========================================================
+    // TV SERIES FOLDER
+    // ==========================================================
+    private suspend fun fetchSeriesFolder(catId: String): List<SearchResponse> {
+        val items = mutableListOf<SearchResponse>()
+        try {
+            val url = "$mainUrl/player_api.php?username=${cred("user")}&password=${cred("pass")}&action=get_series&category_id=$catId"
+            val txt = app.get(url).text
+            val arr = JSONArray(txt)
+            for (i in 0 until arr.length()) {
+                val s = arr.getJSONObject(i)
+                val sid = s.optString("series_id", "")
+                val nm = s.optString("name", "?")
+                val poster = s.optString("cover", "")
+                if (sid.isBlank()) continue
+                val seriesUrl = "SERIES://" + sid
+                items.add(newTvSeriesSearchResponse(nm, seriesUrl, TvType.TvSeries) {
+                    this.posterUrl = poster.ifBlank { null }
+                })
+            }
+        } catch (_: Exception) {}
+        return items
+    }
+
+    // ==========================================================
     // LOAD
     // ==========================================================
     override suspend fun load(url: String): LoadResponse? {
@@ -219,6 +292,56 @@ class NineBikProvider : MainAPI() {
                 }
             } catch (_: Exception) { return null }
         }
+
+        // --- SERIES detail ---
+        if (url.startsWith("SERIES://")) {
+            val sid = url.removePrefix("SERIES://")
+            try {
+                val u = cred("user"); val p = cred("pass")
+                val infoUrl = "$mainUrl/player_api.php?username=$u&password=$p&action=get_series_info&series_id=$sid"
+                val txt = app.get(infoUrl).text
+                val j = JSONObject(txt)
+                val info = j.optJSONObject("info") ?: JSONObject()
+                val nm = info.optString("name", "Series")
+                val plot = info.optString("plot", info.optString("description", ""))
+                val poster = info.optString("cover", info.optString("cover_big", ""))
+                val ratingStr = info.optString("rating", "")
+                val rating = ratingStr.toFloatOrNull()?.let { (it * 10).toInt() }
+
+                val episodesList = mutableListOf<Episode>()
+                val eps = j.optJSONObject("episodes")
+                if (eps != null) {
+                    val keys = eps.keys()
+                    while (keys.hasNext()) {
+                        val seasonKey = keys.next()
+                        val seasonArr = eps.optJSONArray(seasonKey) ?: JSONArray()
+                        val seasonNum = seasonKey.toIntOrNull() ?: 1
+                        for (i in 0 until seasonArr.length()) {
+                            val ep = seasonArr.getJSONObject(i)
+                            val epId = ep.optString("id", "")
+                            val epNum = ep.optInt("episode_num", i + 1)
+                            val epTitle = ep.optString("title", "Episode " + epNum)
+                            val epInfo = ep.optJSONObject("info") ?: JSONObject()
+                            val epImg = epInfo.optString("movie_image", "")
+                            if (epId.isBlank()) continue
+                            val epUrl = "$mainUrl/series/$u/$p/$epId.mp4"
+                            episodesList.add(newEpisode(epUrl) {
+                                this.name = epTitle
+                                this.episode = epNum
+                                this.season = seasonNum
+                                this.posterUrl = epImg.ifBlank { null }
+                            })
+                        }
+                    }
+                }
+                return newTvSeriesLoadResponse(nm, url, TvType.TvSeries, episodesList) {
+                    this.posterUrl = poster.ifBlank { null }
+                    this.plot = plot.ifBlank { null }
+                    this.rating = rating
+                }
+            } catch (_: Exception) { return null }
+        }
+
         return newLiveStreamLoadResponse(name, url, url)
     }
 
