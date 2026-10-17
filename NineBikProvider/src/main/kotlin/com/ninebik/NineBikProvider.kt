@@ -361,28 +361,28 @@ class NineBikProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        if (data.contains("/vod/stream/")) {
-            // MovieBox MP4 stream — let CloudStream auto-detect the format from URL
-            callback(newExtractorLink(
-                source = this.name,
-                name = "9bik VOD",
-                url = data,
-                type = ExtractorLinkType.VIDEO
-            ) {
-                this.quality = Qualities.Unknown.value
-                this.referer = mainUrl
-            })
+        try {
+            // Pass the stream URL and force the proper Referer header
+            callback.invoke(
+                newExtractorLink(
+                    source = this.name,
+                    name = "9bik Stream",
+                    url = data,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.quality = Qualities.Unknown.value
+                    this.referer = "$mainUrl/"
+                    this.headers = mapOf(
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Referer" to "https://123moviesfree.club/",
+                        "Origin" to "https://123moviesfree.club"
+                    )
+                }
+            )
             return true
+        } catch (e: Exception) {
+            return false
         }
-        callback(newExtractorLink(
-            source = this.name,
-            name = "9bik Live",
-            url = data,
-            type = ExtractorLinkType.M3U8
-        ) {
-            this.quality = Qualities.Unknown.value
-        })
-        return true
     }
 
     // ==========================================================
