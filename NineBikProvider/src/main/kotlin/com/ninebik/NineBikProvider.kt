@@ -419,7 +419,8 @@ class NineBikProvider : MainAPI() {
     // ==========================================================
     private suspend fun refreshPanelConfig() {
         val last = pref("brand_refreshed", "0").toLongOrNull() ?: 0L
-        if (System.currentTimeMillis() - last < 3_600_000L) return
+        // Cache for 60 seconds instead of 1 hour so toggles take effect
+        if (System.currentTimeMillis() - last < 60_000L) return
 
         val urls = listOf("https://cdn.9bik.win/plugin/config", "https://9bik.win/plugin/config")
         for (url in urls) {
@@ -450,6 +451,8 @@ class NineBikProvider : MainAPI() {
                     NineBikPlugin.setPref(ctx, "content_categories", names.joinToString("||"))
                     NineBikPlugin.setPref(ctx, "content_include_channels", content.optBoolean("include_channels", false).toString())
                     NineBikPlugin.setPref(ctx, "content_include_matches", content.optBoolean("include_matches", true).toString())
+                    NineBikPlugin.setPref(ctx, "content_include_movies", content.optBoolean("include_movies", true).toString())
+                    NineBikPlugin.setPref(ctx, "content_include_series", content.optBoolean("include_series", true).toString())
                 }
 
                 NineBikPlugin.setPref(ctx, "brand_refreshed", System.currentTimeMillis().toString())
