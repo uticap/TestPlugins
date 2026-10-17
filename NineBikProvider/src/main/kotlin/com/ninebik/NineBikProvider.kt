@@ -362,13 +362,16 @@ class NineBikProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         try {
-            // Pass the stream URL and force the proper Referer header
+            // Automatically detect if it's an HLS stream or standard MP4
+            val isHls = data.contains(".m3u8", ignoreCase = true)
+            val linkType = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+
             callback.invoke(
                 newExtractorLink(
                     source = this.name,
                     name = "9bik Stream",
                     url = data,
-                    type = ExtractorLinkType.VIDEO
+                    type = linkType
                 ) {
                     this.quality = Qualities.Unknown.value
                     this.referer = "$mainUrl/"
